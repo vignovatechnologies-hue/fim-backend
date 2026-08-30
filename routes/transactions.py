@@ -191,3 +191,40 @@ def update_user_budgets(
             
     db.commit()
     return JSONResponse({"status": "success", "message": "Budgets updated successfully"})
+
+
+# ── GET Financial Statement (weekly, monthly, yearly) ──────────────────────
+@router.get("/api/transactions/statement")
+def get_statement(
+    period: str = "monthly",  # weekly, monthly, yearly
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    now = datetime.datetime.utcnow()
+    if period == "weekly":
+        start_date = now - datetime.timedelta(days=7)
+    elif period == "yearly":
+        start_date = datetime.datetime(now.year, 1, 1)
+    else:  # monthly
+        start_date = datetime.datetime(now.year, now.month, 1)
+
+    txns = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.when >= start_date
+    ).order_by(Transaction.when.desc()).all()
+
+    total_income = sum([abs(t.amount) for t in txns if t.amount > 0 or t.payment_status == "credit"])
+    total_expense = sum([abs(t.amount) for t in txns if t.amount < 0 or t.payment_status == "debit"])
+
+    return JSONResponse({
+        "user_name": current_user.name,
+        "email": current_user.email,
+        "period": period.capitalize(),
+        "generated_at": now.strftime("%d %b %Y, %I:%M %p"),
+        "total_income": round(total_income, 2),
+        "total_expense": round(total_expense, 2),
+        "net_savings": round(total_income - total_expense, 2),
+        "transactions_count": len(txns),
+        "transactions": [_serialize_txn(t) for t in txns]
+    })
+
