@@ -96,16 +96,28 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
     health_score = max(10, min(100, health_score))
 
     # Recent 10 Transactions for Overview Activity List
-    recent_txns_orm = db.query(Transaction).filter(
-        Transaction.user_id == current_user.id
-    ).order_by(Transaction.when.desc()).limit(10).all()
-    recent_transactions = [TransactionResponse.from_orm_model(t).model_dump() for t in recent_txns_orm]
+    recent_transactions = []
+    try:
+        recent_txns_orm = db.query(Transaction).filter(
+            Transaction.user_id == current_user.id
+        ).order_by(Transaction.when.desc()).limit(10).all()
+        recent_transactions = [TransactionResponse.from_orm_model(t).model_dump() for t in recent_txns_orm]
+    except Exception as e:
+        print(f"[dashboard] ⚠️ Error mapping recent_transactions: {e}")
 
     # Upcoming EMIs for Overview List
-    upcoming_emis_list = [LoanResponse.from_orm_model(l).model_dump() for l in unpaid_loans]
+    upcoming_emis_list = []
+    try:
+        upcoming_emis_list = [LoanResponse.from_orm_model(l).model_dump() for l in unpaid_loans]
+    except Exception as e:
+        print(f"[dashboard] ⚠️ Error mapping upcoming_emis: {e}")
 
     # Savings Goals for Overview List
-    savings_goals_list = [SavingsGoalResponse.from_orm_model(g).model_dump() for g in goals]
+    savings_goals_list = []
+    try:
+        savings_goals_list = [SavingsGoalResponse.from_orm_model(g).model_dump() for g in goals]
+    except Exception as e:
+        print(f"[dashboard] ⚠️ Error mapping savings_goals: {e}")
 
     return DashboardSummary(
         net_balance=net_balance,
@@ -129,3 +141,4 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
         upcoming_emis=upcoming_emis_list,
         savings_goals=savings_goals_list,
     )
+
