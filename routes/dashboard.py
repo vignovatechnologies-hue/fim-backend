@@ -5,7 +5,7 @@ from sqlalchemy import or_
 
 from database import get_db
 from models import Transaction, Loan, SavingsGoal, User
-from schemas import DashboardSummary
+from schemas import DashboardSummary, TransactionResponse, LoanResponse, SavingsGoalResponse
 from dependencies import get_current_user
 
 router = APIRouter(tags=["dashboard"])
@@ -15,6 +15,7 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
     now = datetime.datetime.utcnow()
     start_of_month = datetime.datetime(now.year, now.month, 1)
 
+    # Monthly Income & Expenses
     income_txns = db.query(Transaction).filter(
         Transaction.user_id == current_user.id,
         or_(Transaction.amount > 0, Transaction.payment_status == "credit", Transaction.category == "Income"),
@@ -29,6 +30,7 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
     ).all()
     spent = sum([abs(t.amount) for t in spent_txns])
 
+    # All time income & expenses for Net Portfolio Balance
     all_income = sum([abs(t.amount) for t in db.query(Transaction).filter(
         Transaction.user_id == current_user.id,
         or_(Transaction.amount > 0, Transaction.payment_status == "credit", Transaction.category == "Income")
@@ -41,9 +43,11 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
 
     net_balance = all_income - all_spent
 
+    # Loans
     loans = db.query(Loan).filter(Loan.user_id == current_user.id).all()
     active_loans_count = len(loans)
     outstanding_loans_amount = sum([l.left_amount for l in loans])
+    monthly_emi_total = sum([l.emi for l in loans if not l.paid_this_month])
 
     next_emi_days = "—"
     next_emi_name = "No upcoming EMIs"
@@ -60,6 +64,7 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
         next_emi_days = f"{days_left}d"
         next_emi_name = next_loan.name
 
+    # Savings
     goals = db.query(SavingsGoal).filter(SavingsGoal.user_id == current_user.id).all()
     total_target = sum([g.target_amount for g in goals])
     total_saved = sum([g.saved_amount for g in goals])
@@ -72,6 +77,7 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
     if total_saved >= 100000:
         savings_goal_text = f"₹ {round(total_saved/100000, 1)}L of {round(total_target/100000, 1)}L"
 
+    # Health Score Calculation
     health_score = 75
     if income > 0:
         spend_ratio = spent / income
@@ -89,6 +95,18 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
             
     health_score = max(10, min(100, health_score))
 
+    # Recent 10 Transactions for Overview Activity List
+    recent_txns_orm = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id
+    ).order_by(Transaction.when.desc()).limit(10).all()
+    recent_transactions = [TransactionResponse.from_orm_model(t).model_dump() for t in recent_txns_orm]
+
+    # Upcoming EMIs for Overview List
+    upcoming_emis_list = [LoanResponse.from_orm_model(l).model_dump() for l in unpaid_loans]
+
+    # Savings Goals for Overview List
+    savings_goals_list = [SavingsGoalResponse.from_orm_model(g).model_dump() for g in goals]
+
     return DashboardSummary(
         net_balance=net_balance,
         income=income,
@@ -99,5 +117,15 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
         savings_goal_percent=savings_goal_percent,
         savings_goal_text=savings_goal_text,
         next_emi_days=next_emi_days,
-        next_emi_name=next_emi_name
+        next_emi_name=next_emi_name,
+        
+        total_balance=net_balance,
+        monthly_income=income,
+        monthly_expense=spent,
+        monthly_emi_total=monthly_emi_total,
+        total_debt=outstanding_loans_amount,
+        total_savings=total_saved,
+        recent_transactions=recent_transactions,
+        upcoming_emis=upcoming_emis_list,
+        savings_goals=savings_goals_list,
     )

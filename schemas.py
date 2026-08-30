@@ -220,6 +220,17 @@ class DashboardSummary(BaseModel):
     savings_goal_text: str
     next_emi_days: str
     next_emi_name: str
+    
+    # Flutter compatibility fields
+    total_balance: Optional[float] = 0.0
+    monthly_income: Optional[float] = 0.0
+    monthly_expense: Optional[float] = 0.0
+    monthly_emi_total: Optional[float] = 0.0
+    total_debt: Optional[float] = 0.0
+    total_savings: Optional[float] = 0.0
+    recent_transactions: Optional[List[dict]] = []
+    upcoming_emis: Optional[List[dict]] = []
+    savings_goals: Optional[List[dict]] = []
 
 class FCMTokenRegister(BaseModel):
     fcm_token: str
