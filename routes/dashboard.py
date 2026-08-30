@@ -1,5 +1,6 @@
 import datetime
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -10,7 +11,7 @@ from dependencies import get_current_user
 
 router = APIRouter(tags=["dashboard"])
 
-@router.get("/api/dashboard/summary", response_model=DashboardSummary)
+@router.get("/api/dashboard/summary")
 def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     now = datetime.datetime.utcnow()
     start_of_month = datetime.datetime(now.year, now.month, 1)
@@ -119,7 +120,7 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
     except Exception as e:
         print(f"[dashboard] ⚠️ Error mapping savings_goals: {e}")
 
-    return DashboardSummary(
+    summary = DashboardSummary(
         net_balance=net_balance,
         income=income,
         spent=spent,
@@ -141,4 +142,4 @@ def get_dashboard_summary(current_user: User = Depends(get_current_user), db: Se
         upcoming_emis=upcoming_emis_list,
         savings_goals=savings_goals_list,
     )
-
+    return JSONResponse(summary.model_dump())
