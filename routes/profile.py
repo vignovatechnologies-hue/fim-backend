@@ -401,33 +401,42 @@ def create_support_ticket(
     </html>
     """
     
+    target_support_email = settings.SUPPORT_EMAIL or settings.BREVO_FROM_EMAIL or "vignovatechnologies@gmail.com"
+    user_email = current_user.email
+    user_name = current_user.name
+
     success = False
     
     # 1. Try Brevo HTTP API
     if settings.BREVO_API_KEY and settings.BREVO_FROM_EMAIL:
-        success = send_via_brevo("vignovatechnologies@gmail.com", "Vignova Technologies", email_subject, html_content)
+        success = send_via_brevo(target_support_email, f"FIM Support ({target_support_email})", email_subject, html_content)
+        send_via_brevo(user_email, user_name, f"Support Ticket Confirmation: {subject}", html_content)
     
     # 2. Try SendGrid HTTP API
     elif settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL and not settings.SENDGRID_API_KEY.startswith("SG.YOUR_"):
-        success = send_via_sendgrid_api("vignovatechnologies@gmail.com", "Vignova Technologies", email_subject, html_content)
+        success = send_via_sendgrid_api(target_support_email, f"FIM Support ({target_support_email})", email_subject, html_content)
+        send_via_sendgrid_api(user_email, user_name, f"Support Ticket Confirmation: {subject}", html_content)
         
     # 3. Try SMTP
     elif settings.SMTP_HOST and settings.SMTP_FROM_EMAIL:
-        success = send_via_smtp("vignovatechnologies@gmail.com", "Vignova Technologies", email_subject, html_content)
+        success = send_via_smtp(target_support_email, f"FIM Support ({target_support_email})", email_subject, html_content)
+        send_via_smtp(user_email, user_name, f"Support Ticket Confirmation: {subject}", html_content)
         
-    # Log to backend console
+    # Log to backend console with dynamic recipient and sender emails
     print("\n" + "="*80)
     print(f"🎟️  [SUPPORT TICKET RAISED]")
-    print(f"From User: {current_user.name} ({current_user.email})")
+    print(f"From User: {user_name} ({user_email})")
+    print(f"Target Support Email: {target_support_email}")
     print(f"Subject: {subject}")
     print(f"Message: {message}")
     if success:
-        print(f"📧 Sent email to vignovatechnologies@gmail.com")
+        print(f"📧 Dynamic support email sent to {target_support_email} & copy sent to {user_email}")
     else:
-        print(f"⚠️ Email could not be sent to vignovatechnologies@gmail.com (Email settings not configured).")
+        print(f"⚠️ Email could not be dispatched to {target_support_email} (Provider API key / SMTP settings unconfigured). Ticket logged to console for user {user_email}.")
     print("="*80 + "\n")
     
-    return {"status": "success", "email_sent": success}
+    return {"status": "success", "email_sent": success, "user_email": user_email, "target_support_email": target_support_email}
+
 
 
 # ── DELETE Account ─────────────────────────────────────────────────────────────

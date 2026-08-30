@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Gemini AI Configuration
     GEMINI_API_KEY: Optional[str] = None
 
+    # Support Email — loaded from .env or defaults to vignovatechnologies@gmail.com
+    SUPPORT_EMAIL: Optional[str] = "vignovatechnologies@gmail.com"
+
 
     @property
     def database_url(self) -> str:
