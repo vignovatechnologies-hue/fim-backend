@@ -428,3 +428,20 @@ def create_support_ticket(
     print("="*80 + "\n")
     
     return {"status": "success", "email_sent": success}
+
+
+# ── DELETE Account ─────────────────────────────────────────────────────────────
+@router.delete("/api/user/account")
+def delete_account(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import Loan, Transaction, Budget, SavingsGoal, Bank
+    
+    user_id = current_user.id
+    db.query(Loan).filter(Loan.user_id == user_id).delete()
+    db.query(Transaction).filter(Transaction.user_id == user_id).delete()
+    db.query(Budget).filter(Budget.user_id == user_id).delete()
+    db.query(SavingsGoal).filter(SavingsGoal.user_id == user_id).delete()
+    db.query(Bank).filter(Bank.user_id == user_id).delete()
+    db.query(User).filter(User.id == user_id).delete()
+    db.commit()
+    return JSONResponse({"status": "success", "message": "Account deleted successfully"})
+
