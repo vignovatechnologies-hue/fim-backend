@@ -1,8 +1,11 @@
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, Body
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+import io
 from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.orm import Session
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from database import get_db
 from models import Transaction, Budget, User
@@ -46,19 +49,25 @@ def _serialize_txn(txn) -> dict:
 def get_transactions(
     month: Optional[int] = None,
     year: Optional[int] = None,
+    all_time: Optional[bool] = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
-    if month is not None and year is not None:
-        start_of_month = datetime.datetime(year, month, 1)
-        if month == 12:
-            end_of_month = datetime.datetime(year + 1, 1, 1)
+    
+    if not all_time:
+        now = datetime.datetime.utcnow()
+        m = month if (month is not None and month > 0) else now.month
+        y = year if (year is not None and year > 0) else now.year
+        
+        start_of_month = datetime.datetime(y, m, 1)
+        if m == 12:
+            end_of_month = datetime.datetime(y + 1, 1, 1)
         else:
-            end_of_month = datetime.datetime(year, month + 1, 1)
+            end_of_month = datetime.datetime(y, m + 1, 1)
         query = query.filter(Transaction.when >= start_of_month, Transaction.when < end_of_month)
         
-    txns = query.order_by(Transaction.when.desc()).limit(100).all()
+    txns = query.order_by(Transaction.when.desc()).limit(200).all()
     return JSONResponse([_serialize_txn(t) for t in txns])
 
 
@@ -357,5 +366,162 @@ def get_statement(
         "day_wise_breakdown": day_wise_breakdown,
         "transactions": [_serialize_txn(t) for t in txns]
     })
+
+
+@router.get("/api/transactions/statement/excel")
+def get_statement_excel(
+    period: str = "monthly",
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    start_date_str: Optional[str] = None,
+    end_date_str: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    now = datetime.datetime.utcnow()
+    if month and year:
+        target_year = year
+        target_month = month
+        start_date = datetime.datetime(target_year, target_month, 1, 0, 0, 0)
+        if target_month == 12:
+            end_date = datetime.datetime(target_year + 1, 1, 1, 0, 0, 0) - datetime.timedelta(seconds=1)
+        else:
+            end_date = datetime.datetime(target_year, target_month + 1, 1, 0, 0, 0) - datetime.timedelta(seconds=1)
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+    elif period == "daily":
+        start_date = datetime.datetime(now.year, now.month, now.day)
+        end_date = start_date + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)
+        date_range_label = now.strftime("%d %b %Y")
+    elif period == "weekly":
+        start_date = now - datetime.timedelta(days=7)
+        end_date = now
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {now.strftime('%d %b %Y')}"
+    elif period == "yearly":
+        start_date = datetime.datetime(now.year, 1, 1)
+        end_date = datetime.datetime(now.year, 12, 31, 23, 59, 59)
+        date_range_label = f"01 Jan {now.year} – 31 Dec {now.year}"
+    elif period == "custom" and start_date_str and end_date_str:
+        try:
+            start_date = datetime.datetime.fromisoformat(start_date_str.replace("Z", ""))
+            end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", ""))
+            end_date = datetime.datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
+            date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+        except Exception:
+            start_date = datetime.datetime(now.year, now.month, 1)
+            end_date = now
+            date_range_label = f"01 {now.strftime('%b %Y')} – {now.strftime('%d %b %Y')}"
+    else:  # monthly
+        start_date = datetime.datetime(now.year, now.month, 1)
+        if now.month == 12:
+            end_date = datetime.datetime(now.year + 1, 1, 1) - datetime.timedelta(seconds=1)
+        else:
+            end_date = datetime.datetime(now.year, now.month + 1, 1) - datetime.timedelta(seconds=1)
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+
+    txns = db.query(Transaction).filter(
+        Transaction.user_id == current_user.id,
+        Transaction.when >= start_date,
+        Transaction.when <= end_date
+    ).order_by(Transaction.when.desc()).all()
+
+    total_income = sum([abs(t.amount) for t in txns if t.amount > 0 or t.payment_status == "credit"])
+    total_expense = sum([abs(t.amount) for t in txns if t.amount < 0 or t.payment_status == "debit"])
+    net_savings = total_income - total_expense
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Financial Statement"
+
+    # Styling definitions
+    header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+    table_header_fill = PatternFill(start_color="374151", end_color="374151", fill_type="solid")
+    title_font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+    bold_font = Font(name="Calibri", size=11, bold=True)
+    table_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style='thin', color='E5E7EB'),
+        right=Side(style='thin', color='E5E7EB'),
+        top=Side(style='thin', color='E5E7EB'),
+        bottom=Side(style='thin', color='E5E7EB')
+    )
+
+    # App Title Header
+    ws.merge_cells('A1:F1')
+    ws['A1'] = "FIM — Financial Intelligence Manager Statement"
+    ws['A1'].font = title_font
+    ws['A1'].fill = header_fill
+    ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 40
+
+    # Summary Info
+    ws['A3'] = "Account Name:"
+    ws['B3'] = current_user.name
+    ws['A4'] = "Email:"
+    ws['B4'] = current_user.email
+    ws['A5'] = "Period Range:"
+    ws['B5'] = date_range_label
+    ws['A6'] = "Generated Date:"
+    ws['B6'] = now.strftime("%d %b %Y, %I:%M %p")
+
+    ws['D3'] = "Total Income:"
+    ws['E3'] = round(total_income, 2)
+    ws['D4'] = "Total Expense:"
+    ws['E4'] = round(total_expense, 2)
+    ws['D5'] = "Net Savings:"
+    ws['E5'] = round(net_savings, 2)
+
+    for r in range(3, 7):
+        ws[f'A{r}'].font = bold_font
+        ws[f'D{r}'].font = bold_font
+
+    # Table Column Headers
+    headers = ["Date & Time", "Description / Title", "Category", "Type", "Amount (₹)", "Payment Status"]
+    for col_num, header_title in enumerate(headers, 1):
+        cell = ws.cell(row=8, column=col_num)
+        cell.value = header_title
+        cell.font = table_header_font
+        cell.fill = table_header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+    ws.row_dimensions[8].height = 26
+
+    # Rows Data
+    row_idx = 9
+    for t in txns:
+        is_credit = t.amount > 0 or t.payment_status == "credit"
+        amt = abs(t.amount)
+        ws.cell(row=row_idx, column=1, value=t.when.strftime("%Y-%m-%d %H:%M")).border = thin_border
+        ws.cell(row=row_idx, column=2, value=t.name).border = thin_border
+        ws.cell(row=row_idx, column=3, value=t.category).border = thin_border
+        ws.cell(row=row_idx, column=4, value="Credit" if is_credit else "Debit").border = thin_border
+        
+        amt_cell = ws.cell(row=row_idx, column=5, value=amt)
+        amt_cell.border = thin_border
+        amt_cell.number_format = '#,##0.00'
+        if is_credit:
+            amt_cell.font = Font(color="16A34A", bold=True)
+        else:
+            amt_cell.font = Font(color="DC2626")
+
+        ws.cell(row=row_idx, column=6, value=t.payment_status or ("credit" if is_credit else "debit")).border = thin_border
+        row_idx += 1
+
+    # Auto-fit columns width
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"FIM_Statement_{period}_{current_user.name.replace(' ', '_')}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 
 

@@ -237,23 +237,31 @@ def send_otp_email(to_email: str, recipient_name: str, otp: str, purpose: str) -
 
     # 1. Try Brevo HTTP API first (works on Render free tier)
     if settings.BREVO_API_KEY and settings.BREVO_FROM_EMAIL:
-        return send_via_brevo(to_email, recipient_name, subject, html_content)
+        success = send_via_brevo(to_email, recipient_name, subject, html_content)
+        if success:
+            return True
+        print("[Email Utility] ⚠️ Brevo sending failed, attempting SMTP fallback...")
 
-    # 2. Try SendGrid HTTP API
-    elif settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL and not settings.SENDGRID_API_KEY.startswith("SG.YOUR_"):
-        return send_via_sendgrid_api(to_email, recipient_name, subject, html_content)
+    # 2. Try SMTP (Gmail or custom server)
+    if settings.SMTP_HOST and settings.SMTP_FROM_EMAIL:
+        success = send_via_smtp(to_email, recipient_name, subject, html_content)
+        if success:
+            return True
+        print("[Email Utility] ⚠️ SMTP sending failed, attempting SendGrid fallback...")
 
-    # 3. Try SMTP (may be blocked on Render free tier)
-    elif settings.SMTP_HOST and settings.SMTP_FROM_EMAIL:
-        return send_via_smtp(to_email, recipient_name, subject, html_content)
+    # 3. Try SendGrid HTTP API
+    if settings.SENDGRID_API_KEY and settings.SENDGRID_FROM_EMAIL and not settings.SENDGRID_API_KEY.startswith("SG.YOUR_"):
+        success = send_via_sendgrid_api(to_email, recipient_name, subject, html_content)
+        if success:
+            return True
 
     # 4. Fallback: print to console (local dev)
-    else:
-        print("\n" + "="*60)
-        print(f"📧 [EMAIL MOCK FALLBACK] ({purpose.upper()})")
-        print(f"To: {recipient_name} <{to_email}>")
-        print(f"Subject: {subject}")
-        print(f"OTP Code: {otp}")
-        print("💡 Set BREVO_API_KEY and BREVO_FROM_EMAIL in backend/.env for real delivery.")
-        print("="*60 + "\n")
-        return True
+    print("\n" + "="*60)
+    print(f"📧 [EMAIL MOCK FALLBACK] ({purpose.upper()})")
+    print(f"To: {recipient_name} <{to_email}>")
+    print(f"Subject: {subject}")
+    print(f"OTP Code: {otp}")
+    print("💡 Set BREVO_API_KEY or SMTP credentials in backend/.env for real delivery.")
+    print("="*60 + "\n")
+    return True
+

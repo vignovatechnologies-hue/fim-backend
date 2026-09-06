@@ -165,7 +165,8 @@ def resend_code(background_tasks: BackgroundTasks, payload: dict = Body(...), db
 
 @router.post("/api/auth/request-reset")
 def request_reset(reset_data: UserResetRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == reset_data.email.lower()).first()
+    email_clean = reset_data.email.lower().strip()
+    user = db.query(User).filter(User.email == email_clean).first()
     if not user:
         raise HTTPException(status_code=404, detail="No account found for this email")
 
