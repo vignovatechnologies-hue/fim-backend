@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # JWT Configuration — loaded from .env / environment variables
     JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 525600  # 365 days (1 year long-lived session)
 
     # Razorpay — loaded from .env
     RAZORPAY_KEY_ID: Optional[str] = None

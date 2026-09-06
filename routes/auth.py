@@ -45,11 +45,11 @@ def signup(user_data: UserCreate, background_tasks: BackgroundTasks, db: Session
     db.refresh(user)
 
     budgets = [
-        Budget(user_id=user.id, category="Food & Dining", budget_amount=15000),
-        Budget(user_id=user.id, category="Shopping", budget_amount=8000),
-        Budget(user_id=user.id, category="Transport", budget_amount=6000),
-        Budget(user_id=user.id, category="Entertainment", budget_amount=4000),
-        Budget(user_id=user.id, category="Home & Bills", budget_amount=20000)
+        Budget(user_id=user.id, category="Food & Dining", budget_amount=0.0),
+        Budget(user_id=user.id, category="Shopping", budget_amount=0.0),
+        Budget(user_id=user.id, category="Transport", budget_amount=0.0),
+        Budget(user_id=user.id, category="Entertainment", budget_amount=0.0),
+        Budget(user_id=user.id, category="Home & Bills", budget_amount=0.0)
     ]
     db.add_all(budgets)
     db.commit()

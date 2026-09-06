@@ -220,6 +220,20 @@ def link_bank(
             detail="Invalid IFSC code. Format: 4 letters + 0 + 6 alphanumeric (e.g. HDFC0001234)",
         )
 
+    # ── 1b. Duplicate Bank Account Check ────────────────────────────────────
+    last4  = clean_acc[-4:]
+    masked = f"•••• {last4}"
+    existing_bank = db.query(Bank).filter(
+        Bank.user_id == current_user.id,
+        Bank.masked_acc == masked,
+        Bank.ifsc_code == ifsc
+    ).first()
+    if existing_bank:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bank account {masked} ({bank_data.name.strip()}) is already linked to your profile.",
+        )
+
     # ── 2. Razorpay bank account validation ──────────────────────────────────
     result = _validate_bank_with_razorpay(clean_acc, ifsc, current_user.name)
     if not result["valid"]:
@@ -229,9 +243,6 @@ def link_bank(
         )
 
     # ── 3. Persist the verified bank ─────────────────────────────────────────
-    last4  = clean_acc[-4:]
-    masked = f"•••• {last4}"
-
     bank = Bank(
         user_id=current_user.id,
         name=bank_data.name.strip(),

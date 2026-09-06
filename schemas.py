@@ -127,6 +127,7 @@ class TransactionCreate(BaseModel):
     category: str
     amount: float
     payment_status: Optional[str] = None
+    when: Optional[str] = None
 
 class TransactionResponse(BaseModel):
     id: int
@@ -141,23 +142,15 @@ class TransactionResponse(BaseModel):
 
     @classmethod
     def from_orm_model(cls, txn):
-        now = datetime.utcnow()
-        diff = now - txn.when
-        if diff.days == 0:
-            when_str = "Today, " + txn.when.strftime("%I:%M%p").lower()
-        elif diff.days == 1:
-            when_str = "Yesterday"
-        else:
-            when_str = txn.when.strftime("%d %b")
-            
         status = txn.payment_status or ("credit" if txn.amount > 0 else "debit")
+        when_iso = txn.when.isoformat() if txn.when else datetime.utcnow().isoformat()
         return cls(
             id=txn.id,
             name=txn.name,
             category=txn.category,
             amount=txn.amount,
             payment_status=status,
-            when=when_str
+            when=when_iso
         )
 
 # Budget Schemas

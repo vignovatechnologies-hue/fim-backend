@@ -89,13 +89,20 @@ def add_transaction(
         payment_status = "debit"
         final_category = std_cat if std_cat in CAT_MAP.values() else raw_cat
 
+    txn_when = datetime.datetime.utcnow()
+    if txn_data.when and txn_data.when.strip():
+        try:
+            txn_when = datetime.datetime.fromisoformat(txn_data.when.strip().replace("Z", ""))
+        except Exception:
+            pass
+
     txn = Transaction(
         user_id=current_user.id,
         name=txn_data.name.strip(),
         category=final_category,
         amount=final_amount,
         payment_status=payment_status,
-        when=datetime.datetime.utcnow(),
+        when=txn_when,
     )
     db.add(txn)
     db.commit()
@@ -120,6 +127,56 @@ def delete_transaction(
     db.delete(txn)
     db.commit()
     return JSONResponse({"status": "success", "message": "Transaction deleted successfully", "id": txn_id})
+
+
+# ── UPDATE / EDIT a transaction ─────────────────────────────────────────────
+@router.put("/api/transactions/{txn_id}")
+def update_transaction(
+    txn_id: int,
+    txn_data: TransactionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    txn = db.query(Transaction).filter(
+        Transaction.id == txn_id,
+        Transaction.user_id == current_user.id
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    raw_cat = txn_data.category.strip()
+    std_cat = CAT_MAP.get(raw_cat, raw_cat)
+
+    is_income = (
+        (txn_data.payment_status and txn_data.payment_status.lower() == "credit")
+        or raw_cat in INCOME_CATEGORIES
+        or std_cat == "Income"
+        or (txn_data.amount > 0 and (not txn_data.payment_status or txn_data.payment_status.lower() != "debit"))
+    )
+
+    if is_income:
+        final_amount = abs(txn_data.amount)
+        payment_status = "credit"
+        final_category = raw_cat if raw_cat in INCOME_CATEGORIES else "Income"
+    else:
+        final_amount = -abs(txn_data.amount)
+        payment_status = "debit"
+        final_category = std_cat if std_cat in CAT_MAP.values() else raw_cat
+
+    if txn_data.when and txn_data.when.strip():
+        try:
+            txn.when = datetime.datetime.fromisoformat(txn_data.when.strip().replace("Z", ""))
+        except Exception:
+            pass
+
+    txn.name = txn_data.name.strip()
+    txn.category = final_category
+    txn.amount = final_amount
+    txn.payment_status = payment_status
+
+    db.commit()
+    db.refresh(txn)
+    return JSONResponse(_serialize_txn(txn))
 
 
 # ── GET budgets with real spent amounts ───────────────────────────────────────
@@ -197,6 +254,8 @@ def update_user_budgets(
 @router.get("/api/transactions/statement")
 def get_statement(
     period: str = "monthly",  # daily, weekly, monthly, yearly, custom
+    month: Optional[int] = None,
+    year: Optional[int] = None,
     start_date_str: Optional[str] = None,
     end_date_str: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -204,36 +263,44 @@ def get_statement(
 ):
     now = datetime.datetime.utcnow()
     
-    if period == "daily":
+    if month and year:
+        target_year = year
+        target_month = month
+        start_date = datetime.datetime(target_year, target_month, 1, 0, 0, 0)
+        if target_month == 12:
+            end_date = datetime.datetime(target_year + 1, 1, 1, 0, 0, 0) - datetime.timedelta(seconds=1)
+        else:
+            end_date = datetime.datetime(target_year, target_month + 1, 1, 0, 0, 0) - datetime.timedelta(seconds=1)
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
+    elif period == "daily":
         start_date = datetime.datetime(now.year, now.month, now.day)
-        end_date = start_date + datetime.timedelta(days=1)
+        end_date = start_date + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)
         date_range_label = now.strftime("%d %b %Y")
     elif period == "weekly":
         start_date = now - datetime.timedelta(days=7)
-        end_date = now + datetime.timedelta(days=1)
-        date_range_label = f"{start_date.strftime('%d %b')} – {now.strftime('%d %b %Y')}"
+        end_date = now
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {now.strftime('%d %b %Y')}"
     elif period == "yearly":
         start_date = datetime.datetime(now.year, 1, 1)
-        end_date = datetime.datetime(now.year + 1, 1, 1)
-        date_range_label = f"Year {now.year}"
+        end_date = datetime.datetime(now.year, 12, 31, 23, 59, 59)
+        date_range_label = f"01 Jan {now.year} – 31 Dec {now.year}"
     elif period == "custom" and start_date_str and end_date_str:
         try:
             start_date = datetime.datetime.fromisoformat(start_date_str.replace("Z", ""))
             end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", ""))
-            # Ensure end_date includes full end of day
             end_date = datetime.datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
             date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
         except Exception:
             start_date = datetime.datetime(now.year, now.month, 1)
-            end_date = now + datetime.timedelta(days=1)
-            date_range_label = now.strftime("%B %Y")
+            end_date = now
+            date_range_label = f"01 {now.strftime('%b %Y')} – {now.strftime('%d %b %Y')}"
     else:  # monthly
         start_date = datetime.datetime(now.year, now.month, 1)
         if now.month == 12:
-            end_date = datetime.datetime(now.year + 1, 1, 1)
+            end_date = datetime.datetime(now.year + 1, 1, 1) - datetime.timedelta(seconds=1)
         else:
-            end_date = datetime.datetime(now.year, now.month + 1, 1)
-        date_range_label = now.strftime("%B %Y")
+            end_date = datetime.datetime(now.year, now.month + 1, 1) - datetime.timedelta(seconds=1)
+        date_range_label = f"{start_date.strftime('%d %b %Y')} – {end_date.strftime('%d %b %Y')}"
 
     txns = db.query(Transaction).filter(
         Transaction.user_id == current_user.id,
@@ -251,9 +318,9 @@ def get_statement(
         if day_key not in grouped_days:
             diff = (now.date() - t.when.date()).days
             if diff == 0:
-                display = "Today (" + t.when.strftime("%d %b") + ")"
+                display = "Today (" + t.when.strftime("%d %b %Y") + ")"
             elif diff == 1:
-                display = "Yesterday (" + t.when.strftime("%d %b") + ")"
+                display = "Yesterday (" + t.when.strftime("%d %b %Y") + ")"
             else:
                 display = t.when.strftime("%A, %d %b %Y")
 
@@ -271,7 +338,9 @@ def get_statement(
         else:
             grouped_days[day_key]["day_expense"] += amt
 
-        grouped_days[day_key]["transactions"].append(_serialize_txn(t))
+        serialized = _serialize_txn(t)
+        serialized["amount"] = amt
+        grouped_days[day_key]["transactions"].append(serialized)
 
     day_wise_breakdown = list(grouped_days.values())
 
