@@ -63,7 +63,7 @@ def check_and_update_db():
                 "SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='preferred_language'"
             ))
             if not res6.fetchone():
-                conn.execute(text("ALTER TABLE users ADD COLUMN preferred_language VARCHAR(10) NOT NULL DEFAULT 'en'"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10) NOT NULL DEFAULT 'en'"))
                 print("[Migration] Added preferred_language column to users table")
     except Exception as e:
         print(f"[Migration] Error updating database tables: {e}")
