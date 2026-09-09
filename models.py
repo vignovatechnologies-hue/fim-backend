@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Numeric
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship, validates
 from database import Base
 
@@ -18,6 +18,7 @@ class User(Base):
     reset_expires = Column(DateTime, nullable=True)
     premium = Column(Boolean, default=False)
     reminders_enabled = Column(Boolean, default=True)
+    preferred_language = Column(String, default="en")
     fcm_token = Column(String, nullable=True)
     photo_data = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -108,3 +109,37 @@ class Budget(Base):
     budget_amount = Column(Float, nullable=False)
 
     user = relationship("User", back_populates="budgets")
+
+
+class Language(Base):
+    __tablename__ = "languages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True, nullable=False)  # en, hi, te
+    name = Column(String, nullable=False)                         # English, Hindi, Telugu
+    native_name = Column(String, nullable=False)                  # English, हिन्दी, తెలుగు
+    is_default = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+
+
+class TranslationKey(Base):
+    __tablename__ = "translation_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True, nullable=False)  # dashboard.title, etc.
+    module = Column(String, nullable=True)                          # auth, dashboard, loans, common
+    description = Column(String, nullable=True)
+
+    values = relationship("TranslationValue", back_populates="translation_key", cascade="all, delete-orphan")
+
+
+class TranslationValue(Base):
+    __tablename__ = "translation_values"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_id = Column(Integer, ForeignKey("translation_keys.id", ondelete="CASCADE"), nullable=False)
+    language_code = Column(String, nullable=False, index=True)      # en, hi, te
+    value = Column(Text, nullable=False)
+
+    translation_key = relationship("TranslationKey", back_populates="values")

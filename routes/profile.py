@@ -183,11 +183,15 @@ def get_reminder_status(current_user: User = Depends(get_current_user)):
 
 @router.post("/api/user/reminders")
 def toggle_reminders(
+    payload: dict = Body(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    current_value = current_user.reminders_enabled if current_user.reminders_enabled is not None else True
-    current_user.reminders_enabled = not current_value
+    if payload and "enabled" in payload:
+        current_user.reminders_enabled = bool(payload["enabled"])
+    else:
+        current_value = current_user.reminders_enabled if current_user.reminders_enabled is not None else True
+        current_user.reminders_enabled = not current_value
     db.commit()
     db.refresh(current_user)
     return JSONResponse(serialize_user(current_user))
